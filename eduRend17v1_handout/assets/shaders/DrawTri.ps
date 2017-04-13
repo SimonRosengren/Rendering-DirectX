@@ -1,0 +1,86 @@
+Texture2D texDiffuse : register(t0);
+Texture2D texNormal : register(t1);
+TextureCube texCube : register(t2);
+SamplerState texSampler : register(s0);
+struct PSIn
+{
+	float4 Pos  : SV_Position;
+	float3 Normal : NORMAL;
+	float3 Tangent : TANGENT;
+	float3 Binormal : BINORMAL;
+	float2 TexCoord : TEX;
+    float4 WorldPos : WORLDPOSITION;
+};
+/*cbuffer LightBuffer : register(b0)
+{
+	float4 Light : LIGHT;
+	float4 myColor : COLOR;
+};*/
+cbuffer LightBuffer : register(b0)
+{
+    float4 LightColor;
+	float4 LightDir;
+	float4 CameraDir;
+	//float SpecularPower;
+}
+cbuffer PhongBuffer : register(b1)
+{
+	float4 SpecularPower;
+	float4 SpecularColor;
+	float4 AmbientColor;
+	float4 DiffuseColor;
+	float isSkybox;
+	float3 padding;
+}
+
+
+//-----------------------------------------------------------------------------------------
+// Pixel Shader
+//-----------------------------------------------------------------------------------------
+float4 CalcPhong(float4 normal, float4 mirrorVector, float4 viewVector, float4 reflectionVector, float4 diffuseTexColor)
+{
+	float4 diffuse = diffuseTexColor * saturate(dot(mirrorVector, normal));
+	float4 specular = SpecularColor * pow(saturate(dot(reflectionVector, viewVector)), 10);
+	return (AmbientColor * diffuseTexColor + diffuse + specular);// ;
+}
+float4 PS_main(PSIn input) : SV_Target
+{	
+	float4 CameraDirection = normalize(CameraDir - input.WorldPos);
+	float4 diffuseTexColor;
+	if(isSkybox == 0)
+	{
+		diffuseTexColor = texCube.Sample(texSampler, reflect(-CameraDirection, input.Normal)/*input.Normal*/);
+	}
+	if(isSkybox == 1)
+	{
+		diffuseTexColor = texCube.Sample(texSampler, -input.Normal);
+	}
+
+	
+	diffuseTexColor = texDiffuse.Sample(texSampler, input.TexCoord);
+
+	// Sample the pixel in the bump map.
+	float3 bumpNormal = texNormal.Sample(texSampler, input.TexCoord).xyz; //The new normal
+
+	bumpNormal = bumpNormal * 2 -1;
+	//Construct the matrix
+	float3x3 TBN = transpose(float3x3(input.Tangent, input.Binormal, input.Normal));
+
+	//Normalize and create the new normal
+	float3 N = mul(TBN, bumpNormal);
+	//N = input.Normal;
+	N = normalize(N);
+
+	
+
+	input.Normal = normalize(input.Normal);
+	float4 LightDirection = normalize(LightDir);	//L
+	 //V
+	float4 R = reflect(LightDir, float4(N, 0));
+
+	return CalcPhong(float4(N, 0), -LightDirection, CameraDirection, R, diffuseTexColor);
+	
+
+	// Debug shading #2: map and return texture coordinates as a color (blue = 0)
+	//return float4(input.TexCoord, 0, 1);
+}
